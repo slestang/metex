@@ -1,21 +1,37 @@
 defmodule Metex.Worker do
 
-  def loop do
-    receive do
-      {sender_pid, location} ->
-        send(sender_pid, {:ok, temperature_of(location)})
-      _ ->
-        IO.puts "Don't know how to process this message"
-    end
-    loop()
+  use GenServer
+
+  ## Client API
+
+  def start_link(opts \\[]) do
+    GenServer.start_link(__MODULE__, :ok, opts)
   end
 
-  def temperature_of(location) do
-    result = url_for(location) |> HTTPoison.get |> parse_response
-    case result do
-      {:ok, temp} -> "#{location}: #{temp}C"
-      :error -> "#{location} not found"
+  def get_temperature(pid, location) do
+    GenServer.call(pid, {:location, location})
+  end
+
+  ## Server Callback
+
+  def init(:ok) do
+    {:ok, %{}}
+  end
+
+  def handle_call({:location, location}, _from, stats) do
+    case temperature_of(location) do
+      {:ok, temp} ->
+        new_stats = update_stats(stats, location)
+        {:reply, "#{temp}C", new_stats}
+      _ ->
+        {:reply, :error, stats}
     end
+  end
+
+  ## Helper Functions
+
+  def temperature_of(location) do
+    url_for(location) |> HTTPoison.get |> parse_response
   end
 
   defp url_for(location) do
@@ -43,4 +59,12 @@ defmodule Metex.Worker do
   defp apikey do
     "3bafe687db9170ec578d8781c5602aaa"
   end
+
+  defp update_stats(old_stats, location) do
+    case Map.has_key?(old_stats, location) do
+      true -> Map.update!(old_stats, location, &(&1 + 1))
+      false -> Map.put_new(old_stats, location, 1)
+    end
+  end
+
 end
